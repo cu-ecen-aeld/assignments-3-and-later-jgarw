@@ -31,7 +31,9 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 
 make clean
 
-make
+make CROSS_COMPILE=aarch64-none-linux-gnu-
+
+file ./writer > ../assignments/assignment2/fileresult.txt
 
 rm -rf "${WRITEDIR}"
 
@@ -52,9 +54,9 @@ then
 		exit 1
 	fi
 fi
-#echo "Removing the old writer utility and compiling as a native application"
-#make clean
-#make
+echo "Removing the old writer utility and compiling as a native application"
+make clean
+make
 
 for i in $( seq 1 $NUMFILES)
 do
