@@ -31,9 +31,7 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 
 make clean
 
-make CROSS_COMPILE=aarch64-none-linux-gnu-
-
-file ./writer > ../assignments/assignment2/fileresult.txt
+make
 
 rm -rf "${WRITEDIR}"
 
