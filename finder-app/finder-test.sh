@@ -29,10 +29,6 @@ MATCHSTR="The number of files are ${NUMFILES} and the number of matching lines a
 
 echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 
-make clean
-
-make
-
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
