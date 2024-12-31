@@ -117,10 +117,10 @@ cp writer.sh ${OUTDIR}/rootfs/home
 cp autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 mkdir -p ${OUTDIR}/rootfs/home/conf
-cp -r conf/* ${OUTDIR}/rootfs/home/conf
+cp -r ../conf/* ${OUTDIR}/rootfs/home/conf
 
 mkdir -p ${OUTDIR}/home/conf
-cp -r conf/* ${OUTDIR}/home/conf
+cp -r ../conf/* ${OUTDIR}/home/conf
 
 # TODO: Chown the root directory
 cd "${OUTDIR}/rootfs"
