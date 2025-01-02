@@ -59,7 +59,9 @@ done
 
 OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 
-echo ${OUTPUTSTRING} > /tmp/assignmet-4-result.txt
+touch /tmp/assignment-4-result.txt
+
+echo ${OUTPUTSTRING} > /tmp/assignment-4-result.txt
 
 # remove temporary directories
 rm -rf /tmp/aeld-data
