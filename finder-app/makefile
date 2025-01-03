@@ -1,25 +1,13 @@
-CC := gcc
-CFLAGS := -Wall -Wextra -Werror
-
-TARGET := writer
-
-SRCS := writer.c
-
-OBJS := $(SRCS:.c=.o)
-
-ifdef CROSS_COMPILE
+#Author: Joseph Garwood
 CC := $(CROSS_COMPILE)gcc
-endif
 
-all: $(TARGET)
+all: writer
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^
+writer: writer.o
+	$(CC) writer.o -o writer
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+writer.o: writer.c 
+	$(CC) -c writer.c -o writer.o 
 
 clean:
-	rm -f $(TARGET) $(OBJS)
-
-.PHONY: all clean
+	rm -f writer *.
