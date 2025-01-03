@@ -10,4 +10,4 @@ writer.o: writer.c
 	$(CC) -c writer.c -o writer.o 
 
 clean:
-	rm -f writer *.
+	rm -f writer *.o
