@@ -1,208 +1,172 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
 #include <syslog.h>
+#include <errno.h>
 #include <fcntl.h>
-#include <stdbool.h>
 
-#define SERVER_PORT 9000
-#define QUEUE_LENGTH 10
-#define STORAGE_FILE "/var/tmp/serverdata"
+#define PORT 9000
+#define BUFFER_SIZE 1024
+#define FILE_PATH "/var/tmp/aesdsocketdata"
 
-int server_fd = -1;
-bool server_active = true;
+int socket_fd;
+int is_running = 1;
+FILE *storage_file = NULL;
 
-void handle_signal(int sig) {
-    printf("Signal %d received\n", sig);
-    server_active = false;
-}
+void setup_signal_handlers();
+void setup_server_socket();
+void handle_client_connection(int client_fd, struct sockaddr_in *client_addr);
+void receive_data_and_store(int client_fd);
+void send_data_to_client(int client_fd);
+void close_resources();
 
-void clean_up() {
-    if (server_fd != -1) {
-        close(server_fd);
-        server_fd = -1;
-    }
-    unlink(STORAGE_FILE);
-    syslog(LOG_INFO, "Server shutting down");
+void cleanup() {
+    if (storage_file) fclose(storage_file);
+    if (socket_fd != -1) close(socket_fd);
+    remove(FILE_PATH);
     closelog();
 }
 
-int create_storage_file() {
-    int file_fd = open(STORAGE_FILE, O_CREAT | O_RDWR | O_APPEND, 0644);
-    if (file_fd == -1) {
-        syslog(LOG_ERR, "Error opening storage file: %s", strerror(errno));
+void handle_signal(int signal_number) {
+    if (signal_number == SIGINT || signal_number == SIGTERM) {
+        syslog(LOG_INFO, "Received termination signal, shutting down");
+        is_running = 0;
+        cleanup();
+        exit(0);
     }
-    return file_fd;
 }
 
-void process_request(int client_fd, struct sockaddr_in *client_info) {
-    char buffer[1024];
-    memset(buffer, 0, sizeof(buffer));
-    int file_fd = create_storage_file();
-    if (file_fd == -1) {
-        close(client_fd);
-        return;
-    }
-
-    char client_ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &client_info->sin_addr, client_ip, INET_ADDRSTRLEN);
-    syslog(LOG_INFO, "Connection from %s", client_ip);
-
-    bool continue_receiving = true;
-    ssize_t bytes_read = 0;
-    while (continue_receiving) {
-        bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-        buffer[bytes_read] = '\0';
-        syslog(LOG_INFO, "Received bytes: %zd", bytes_read);
-        syslog(LOG_DEBUG, "Data: %s", buffer);
-
-        if (bytes_read > 0) {
-            if (write(file_fd, buffer, bytes_read) == -1) {
-                syslog(LOG_ERR, "Error writing to storage file: %s", strerror(errno));
-                break;
-            }
-        }
-
-        if (strchr(buffer, '\n')) {
-            lseek(file_fd, 0, SEEK_SET);
-
-            memset(buffer, 0, sizeof(buffer));
-            while ((bytes_read = read(file_fd, buffer, sizeof(buffer))) > 0) {
-                if (send(client_fd, buffer, bytes_read, 0) == -1) {
-                    syslog(LOG_ERR, "Error sending data to client: %s", strerror(errno));
-                    break;
-                }
-            }
-            continue_receiving = false;
-        }
-    }
-
-    close(file_fd);
-    close(client_fd);
-    syslog(LOG_INFO, "Connection from %s closed", client_ip);
+void setup_signal_handlers() {
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
 }
 
-void start_daemon() {
-    pid_t pid = fork();
-    if (pid < 0) {
-        syslog(LOG_ERR, "Fork failed: %s", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    if (pid > 0) {
-        exit(EXIT_SUCCESS);
+void setup_server_socket() {
+    struct sockaddr_in server_address;
+
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        syslog(LOG_ERR, "Error creating socket: %s", strerror(errno));
+        exit(-1);
     }
 
-    if (setsid() < 0) {
-        syslog(LOG_ERR, "Session creation failed: %s", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-    open("/dev/null", O_RDONLY);
-    open("/dev/null", O_RDWR);
-    open("/dev/null", O_RDWR);
-}
-
-int initialize_socket() {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == -1) {
-        syslog(LOG_ERR, "Socket creation failed: %s", strerror(errno));
-    }
-    return fd;
-}
-
-int bind_socket(int fd, struct sockaddr_in *server_address) {
     int opt = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        syslog(LOG_ERR, "Setting SO_REUSEADDR failed: %s", strerror(errno));
-        return -1;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        syslog(LOG_ERR, "Error setting socket option: %s", strerror(errno));
+        close(socket_fd);
+        exit(-1);
     }
 
-    if (bind(fd, (struct sockaddr *)server_address, sizeof(*server_address)) == -1) {
-        syslog(LOG_ERR, "Binding failed: %s", strerror(errno));
-        return -1;
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = INADDR_ANY;
+    server_address.sin_port = htons(PORT);
+
+    if (bind(socket_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
+        syslog(LOG_ERR, "Error binding socket: %s", strerror(errno));
+        close(socket_fd);
+        exit(-1);
     }
-    return 0;
+
+    if (listen(socket_fd, 5) < 0) {
+        syslog(LOG_ERR, "Error listening on socket: %s", strerror(errno));
+        close(socket_fd);
+        exit(-1);
+    }
 }
 
-void configure_signal_handlers() {
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_signal;
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGTSTP, &sa, NULL);
+void receive_data_and_store(int client_fd) {
+    char data_buffer[1024] = {0};
+    int received_bytes;
+    
+    while ((received_bytes = recv(client_fd, data_buffer, 1024 - 1, 0)) > 0) {
+        data_buffer[received_bytes] = '\0';
+        fwrite(data_buffer, sizeof(char), received_bytes, storage_file);
+        if (strchr(data_buffer, '\n') != NULL) {
+            fflush(storage_file);
+            break;
+        }
+    }
+
+    if (received_bytes < 0) {
+        syslog(LOG_ERR, "Error receiving data: %s", strerror(errno));
+    }
+}
+
+void send_data_to_client(int client_fd) {
+    char data_buffer[1024] = {0};
+    size_t read_bytes;
+
+    fseek(storage_file, 0, SEEK_SET);
+    while ((read_bytes = fread(data_buffer, sizeof(char), 1024 - 1, storage_file)) > 0) {
+        data_buffer[read_bytes] = '\0';
+        ssize_t sent_bytes = send(client_fd, data_buffer, read_bytes, 0);
+        if (sent_bytes < 0) {
+            syslog(LOG_ERR, "Error sending data: %s", strerror(errno));
+            break;
+        }
+    }
+}
+
+void handle_client_connection(int client_fd, struct sockaddr_in *client_addr) {
+    char *client_ip = inet_ntoa(client_addr->sin_addr);
+    syslog(LOG_INFO, "Connection established with client: %s", client_ip);
+
+    receive_data_and_store(client_fd);
+    send_data_to_client(client_fd);
+
+    close(client_fd);
+    syslog(LOG_INFO, "Connection closed with client: %s", client_ip);
 }
 
 int main(int argc, char *argv[]) {
-    struct sockaddr_in server_address, client_address;
-    socklen_t client_address_len = sizeof(client_address);
-    bool is_daemon = false;
+    struct sockaddr_in client_address;
+    int address_length = sizeof(client_address);
 
-    int opt_char;
-    while ((opt_char = getopt(argc, argv, "d")) != -1) {
-        switch (opt_char) {
-            case 'd':
-                is_daemon = true;
-                break;
-            default:
-                fprintf(stderr, "Usage: %s [-d]\n", argv[0]);
-                exit(EXIT_FAILURE);
-        }
-    }
+    openlog("myserver", LOG_PID | LOG_CONS, LOG_USER);
 
-    openlog("simple_server", LOG_PID, LOG_USER);
+    setup_signal_handlers();
+    setup_server_socket();
 
-    configure_signal_handlers();
-
-    server_fd = initialize_socket();
-    if (server_fd == -1) return -1;
-
-    memset(&server_address, 0, sizeof(server_address));
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(SERVER_PORT);
-    server_address.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    printf("Server binding to %s:%d\n", inet_ntoa(server_address.sin_addr), ntohs(server_address.sin_port));
-
-    if (bind_socket(server_fd, &server_address) == -1) {
-        clean_up();
+    storage_file = fopen(FILE_PATH, "w+");
+    if (storage_file == NULL) {
+        syslog(LOG_ERR, "Error opening file: %s", strerror(errno));
+        close(socket_fd);
         return -1;
     }
 
-    if (is_daemon) {
-        start_daemon();
+    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+        if (fork() > 0) exit(0);
+
+        setsid();
+
+        signal(SIGCHLD, SIG_IGN);
+        signal(SIGHUP, SIG_IGN);
+
+        umask(0);
+        chdir("/");
+
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
     }
 
-    if (listen(server_fd, QUEUE_LENGTH) == -1) {
-        syslog(LOG_ERR, "Listening failed: %s", strerror(errno));
-        clean_up();
-        return -1;
-    }
-
-    while (server_active) {
-        int client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_address_len);
-        if (client_fd == -1) {
-            if (errno == EINTR) {
-                break;
-            }
-            syslog(LOG_ERR, "Connection acceptance failed: %s", strerror(errno));
+    while (is_running) {
+        int client_fd;
+        if ((client_fd = accept(socket_fd, (struct sockaddr *)&client_address, (socklen_t*)&address_length)) < 0) {
+            if (errno == EINTR) continue;
+            syslog(LOG_ERR, "Error accepting connection: %s", strerror(errno));
             continue;
         }
 
-        syslog(LOG_INFO, "Connection from %s, port %d", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
-        process_request(client_fd, &client_address);
+        handle_client_connection(client_fd, &client_address);
     }
 
-    clean_up();
+    cleanup();
     return 0;
 }
