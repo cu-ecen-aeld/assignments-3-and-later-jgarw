@@ -1,13 +1,11 @@
 #Author: Joseph Garwood
 CC := $(CROSS_COMPILE)gcc
 
-all: writer
+CC = gcc
+CFLAGS = -Werror -Wall
 
-writer: writer.o
-	$(CC) writer.o -o writer
-
-writer.o: writer.c 
-	$(CC) -c writer.c -o writer.o 
+all:
+	$(CROSS_COMPILE)$(CC) $(CFLAGS) writer.c -o writer
 
 clean:
-	rm -f writer.o writer
+	rm -f writer *.o
