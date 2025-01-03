@@ -1,13 +1,9 @@
-#Author: Joseph Garwood
-CC := $(CROSS_COMPILE)gcc
+.PHONY: clean
 
-all: writer
+CC := $(CROSS_COMPILE)$(CC)
 
-writer: writer.o
-	$(CC) writer.o -o writer
-
-writer.o: writer.c 
-	$(CC) -c writer.c -o writer.o 
+build: writer.c
+	@$(CC) writer.c -o writer
 
 clean:
-	rm -f writer *.o
+	@rm -rf writer
