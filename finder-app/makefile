@@ -1,14 +1,25 @@
-.PHONY: all clean
+CC := gcc
+CFLAGS := -Wall -Wextra -Werror
 
+TARGET := writer
+
+SRCS := writer.c
+
+OBJS := $(SRCS:.c=.o)
+
+ifdef CROSS_COMPILE
 CC := $(CROSS_COMPILE)gcc
+endif
 
-all: writer
+all: $(TARGET)
 
-writer: writer.o
-	$(CC) writer.o -o writer
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^
 
-writer.o: writer.c
-	$(CC) -c writer.c -o writer.o
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f writer writer.o
+	rm -f $(TARGET) $(OBJS)
+
+.PHONY: all clean
