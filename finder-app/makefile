@@ -1,9 +1,14 @@
-.PHONY: clean
+.PHONY: all clean
 
-CC := $(CROSS_COMPILE)$(CC)
+CC := $(CROSS_COMPILE)gcc
 
-build: writer.c
-	@$(CC) writer.c -o writer
+all: writer
+
+writer: writer.o
+	$(CC) writer.o -o writer
+
+writer.o: writer.c
+	$(CC) -c writer.c -o writer.o
 
 clean:
-	@rm -rf writer
+	rm -f writer writer.o
