@@ -1,7 +1,6 @@
 #Author: Joseph Garwood
 CC := $(CROSS_COMPILE)gcc
 
-CC = gcc
 CFLAGS = -Werror -Wall
 
 all:
